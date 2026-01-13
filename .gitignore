@@ -1,0 +1,55 @@
+# Environment Variables
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs/
+
+# Dependencies
+node_modules/
+vendor/
+
+# Build outputs
+dist/
+build/
+*.exe
+*.dll
+*.so
+*.dylib
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test coverage
+coverage/
+*.coverprofile
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Docker volumes (if generated locally)
+data/
+
+# Go specific
+*.test
+*.out
+go.work
+go.work.sum
+
+# Binary outputs
+jira-webhook-api/jira-webhook-api
+configuration-api/configuration-api
+developer-agent-consumer/developer-agent-consumer
+tests/tests

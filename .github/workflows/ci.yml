@@ -1,0 +1,229 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  test-configuration-api:
+    name: Test Configuration API
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.20'
+
+    - name: Test Configuration API
+      working-directory: ./configuration-api
+      run: |
+        go mod download
+        go test ./... -v -cover
+
+  test-jira-webhook-api:
+    name: Test JIRA Webhook API
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.20'
+
+    - name: Test JIRA Webhook API
+      working-directory: ./jira-webhook-api
+      run: |
+        go mod download
+        go test ./... -v -cover
+
+  test-developer-agent-consumer:
+    name: Test Developer Agent Consumer
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.20'
+
+    - name: Test Developer Agent Consumer
+      working-directory: ./developer-agent-consumer
+      run: |
+        go mod download
+        go test ./... -v -cover
+
+  test-backoffice-ui:
+    name: Test Backoffice UI
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: '18'
+
+    - name: Install dependencies
+      working-directory: ./backoffice-ui
+      run: npm ci
+
+    - name: Run linter
+      working-directory: ./backoffice-ui
+      run: npm run lint
+
+    - name: Build
+      working-directory: ./backoffice-ui
+      run: npm run build
+
+  build-docker-images:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+    needs: [test-configuration-api, test-jira-webhook-api, test-developer-agent-consumer, test-backoffice-ui]
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+
+    - name: Build Configuration API
+      uses: docker/build-push-action@v4
+      with:
+        context: ./configuration-api
+        push: false
+        tags: sdlc-configuration-api:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Build JIRA Webhook API
+      uses: docker/build-push-action@v4
+      with:
+        context: ./jira-webhook-api
+        push: false
+        tags: sdlc-jira-webhook-api:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Build Developer Agent Consumer
+      uses: docker/build-push-action@v4
+      with:
+        context: ./developer-agent-consumer
+        push: false
+        tags: sdlc-developer-agent-consumer:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Build Backoffice UI
+      uses: docker/build-push-action@v4
+      with:
+        context: ./backoffice-ui
+        push: false
+        tags: sdlc-backoffice-ui:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Build Functional Tests
+      uses: docker/build-push-action@v4
+      with:
+        context: ./functional-tests
+        push: false
+        tags: sdlc-functional-tests:latest
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [build-docker-images]
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Start services with Docker Compose
+      run: |
+        docker-compose up -d mongodb rabbitmq
+        sleep 10
+
+    - name: Wait for MongoDB
+      run: |
+        timeout 60 bash -c 'until docker exec sdlc-mongodb mongosh --eval "db.runCommand({ping: 1})"; do sleep 2; done'
+
+    - name: Wait for RabbitMQ
+      run: |
+        timeout 60 bash -c 'until docker exec sdlc-rabbitmq rabbitmq-diagnostics ping; do sleep 2; done'
+
+    - name: Start application services
+      run: |
+        docker-compose up -d configuration-api jira-webhook-api
+        sleep 10
+
+    - name: Wait for Configuration API
+      run: |
+        timeout 60 bash -c 'until curl -sf http://localhost:8081/health; do sleep 2; done'
+
+    - name: Wait for JIRA Webhook API
+      run: |
+        timeout 60 bash -c 'until curl -sf http://localhost:8080/health; do sleep 2; done'
+
+    - name: Run functional tests
+      run: |
+        cd functional-tests
+        go run main.go
+      env:
+        CONFIG_API_URL: http://localhost:8081
+        WEBHOOK_API_URL: http://localhost:8080
+        MONGO_URL: mongodb://localhost:27017
+        MONGO_DATABASE: sdlc_agent
+
+    - name: Show logs on failure
+      if: failure()
+      run: |
+        docker-compose logs
+
+    - name: Cleanup
+      if: always()
+      run: |
+        docker-compose down -v
+
+  code-quality:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.20'
+
+    - name: Run golangci-lint (Configuration API)
+      uses: golangci/golangci-lint-action@v3
+      with:
+        working-directory: ./configuration-api
+        version: latest
+        args: --timeout=5m
+
+    - name: Run golangci-lint (JIRA Webhook API)
+      uses: golangci/golangci-lint-action@v3
+      with:
+        working-directory: ./jira-webhook-api
+        version: latest
+        args: --timeout=5m
+
+    - name: Run golangci-lint (Developer Agent Consumer)
+      uses: golangci/golangci-lint-action@v3
+      with:
+        working-directory: ./developer-agent-consumer
+        version: latest
+        args: --timeout=5m
