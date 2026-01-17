@@ -9,6 +9,8 @@ import { ProjectForm } from './components/ProjectForm';
 import { RepositoryList } from './components/RepositoryList';
 import { DevelopmentList } from './components/DevelopmentList';
 import { DevelopmentDetails } from './components/DevelopmentDetails';
+import { WebhookEventList } from './components/WebhookEventList';
+import { WebhookEventDetails } from './components/WebhookEventDetails';
 
 function App() {
   return (
@@ -25,6 +27,8 @@ function App() {
               <Route path="projects/:projectId/repositories" element={<RepositoryList />} />
               <Route path="developments" element={<DevelopmentList />} />
               <Route path="developments/:id" element={<DevelopmentDetails />} />
+              <Route path="webhook-events" element={<WebhookEventList />} />
+              <Route path="webhook-events/:id" element={<WebhookEventDetails />} />
             </Route>
           </Routes>
         </BrowserRouter>

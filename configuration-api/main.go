@@ -68,14 +68,17 @@ func main() {
 	db := client.Database("sdlc_agents")
 	projectRepo := repositories.NewProjectRepository(db)
 	developmentRepo := repositories.NewDevelopmentRepository(db)
+	webhookRepo := repositories.NewWebhookRepository(db)
 
 	// Initialize services
 	projectService := services.NewProjectService(projectRepo)
 	developmentService := services.NewDevelopmentService(developmentRepo)
+	webhookService := services.NewWebhookService(webhookRepo)
 
 	// Initialize handlers
 	projectHandler := handlers.NewProjectHandler(projectService, logger)
 	developmentHandler := handlers.NewDevelopmentHandler(developmentService, logger)
+	webhookHandler := handlers.NewWebhookHandler(webhookService, logger)
 
 	// Setup Gin router
 	if os.Getenv("GIN_MODE") != "debug" {
@@ -119,6 +122,10 @@ func main() {
 		// Development routes
 		api.GET("/developments", developmentHandler.GetDevelopments)
 		api.GET("/developments/:id", developmentHandler.GetDevelopment)
+
+		// Webhook Event routes
+		api.GET("/webhook-events", webhookHandler.GetWebhookEvents)
+		api.GET("/webhook-events/:id", webhookHandler.GetWebhookEvent)
 	}
 
 	// Start server in a goroutine

@@ -15,6 +15,7 @@ import {
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import FolderIcon from '@mui/icons-material/Folder';
 import CodeIcon from '@mui/icons-material/Code';
+import WebhookIcon from '@mui/icons-material/Webhook';
 
 const drawerWidth = 240;
 
@@ -25,6 +26,7 @@ export const Layout: React.FC = () => {
   const menuItems = [
     { text: 'Projects', icon: <FolderIcon />, path: '/projects' },
     { text: 'Developments', icon: <CodeIcon />, path: '/developments' },
+    { text: 'Webhook Events', icon: <WebhookIcon />, path: '/webhook-events' },
   ];
 
   return (

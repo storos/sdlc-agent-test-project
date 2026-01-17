@@ -8,6 +8,7 @@ import type {
   UpdateRepositoryRequest,
 } from '../types/project';
 import type { Development } from '../types/development';
+import type { WebhookEvent } from '../types/webhook';
 
 class ApiClient {
   private client: AxiosInstance;
@@ -93,6 +94,24 @@ class ApiClient {
 
   async getDevelopmentsByProject(jiraProjectKey: string): Promise<Development[]> {
     const response = await this.client.get<Development[]>('/developments', {
+      params: { jira_project_key: jiraProjectKey },
+    });
+    return response.data;
+  }
+
+  // Webhook Event endpoints
+  async getAllWebhookEvents(): Promise<WebhookEvent[]> {
+    const response = await this.client.get<WebhookEvent[]>('/webhook-events');
+    return response.data;
+  }
+
+  async getWebhookEventById(id: string): Promise<WebhookEvent> {
+    const response = await this.client.get<WebhookEvent>(`/webhook-events/${id}`);
+    return response.data;
+  }
+
+  async getWebhookEventsByProject(jiraProjectKey: string): Promise<WebhookEvent[]> {
+    const response = await this.client.get<WebhookEvent[]>('/webhook-events', {
       params: { jira_project_key: jiraProjectKey },
     });
     return response.data;
