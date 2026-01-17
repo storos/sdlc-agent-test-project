@@ -7,6 +7,7 @@ import type {
   AddRepositoryRequest,
   UpdateRepositoryRequest,
 } from '../types/project';
+import type { Development } from '../types/development';
 
 class ApiClient {
   private client: AxiosInstance;
@@ -77,6 +78,24 @@ class ApiClient {
     await this.client.delete(`/repositories/${repositoryId}`, {
       params: { project_id: projectId },
     });
+  }
+
+  // Development endpoints
+  async getAllDevelopments(): Promise<Development[]> {
+    const response = await this.client.get<Development[]>('/developments');
+    return response.data;
+  }
+
+  async getDevelopmentById(id: string): Promise<Development> {
+    const response = await this.client.get<Development>(`/developments/${id}`);
+    return response.data;
+  }
+
+  async getDevelopmentsByProject(jiraProjectKey: string): Promise<Development[]> {
+    const response = await this.client.get<Development[]>('/developments', {
+      params: { jira_project_key: jiraProjectKey },
+    });
+    return response.data;
   }
 }
 

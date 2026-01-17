@@ -67,12 +67,15 @@ func main() {
 	// Initialize database and repositories
 	db := client.Database("sdlc_agents")
 	projectRepo := repositories.NewProjectRepository(db)
+	developmentRepo := repositories.NewDevelopmentRepository(db)
 
 	// Initialize services
 	projectService := services.NewProjectService(projectRepo)
+	developmentService := services.NewDevelopmentService(developmentRepo)
 
 	// Initialize handlers
 	projectHandler := handlers.NewProjectHandler(projectService, logger)
+	developmentHandler := handlers.NewDevelopmentHandler(developmentService, logger)
 
 	// Setup Gin router
 	if os.Getenv("GIN_MODE") != "debug" {
@@ -112,6 +115,10 @@ func main() {
 		api.POST("/projects/:id/repositories", projectHandler.AddRepository)
 		api.PUT("/repositories/:id", projectHandler.UpdateRepository)
 		api.DELETE("/repositories/:id", projectHandler.DeleteRepository)
+
+		// Development routes
+		api.GET("/developments", developmentHandler.GetDevelopments)
+		api.GET("/developments/:id", developmentHandler.GetDevelopment)
 	}
 
 	// Start server in a goroutine
