@@ -35,8 +35,13 @@ type RepoInfo struct {
 }
 
 func (s *PRService) CreatePullRequest(
-	repoURL, branchName, jiraIssueKey, summary, description, accessToken string,
+	repoURL, branchName, baseBranch, jiraIssueKey, summary, description, accessToken string,
 ) (string, error) {
+	// Default base branch to "main" if not specified
+	if baseBranch == "" {
+		baseBranch = "main"
+	}
+
 	// Parse repository URL to determine platform
 	repoInfo, err := s.parseRepoURL(repoURL)
 	if err != nil {
@@ -48,13 +53,14 @@ func (s *PRService) CreatePullRequest(
 		"owner":          repoInfo.Owner,
 		"repo":           repoInfo.Repo,
 		"branch":         branchName,
+		"base_branch":    baseBranch,
 		"jira_issue_key": jiraIssueKey,
 	}).Info("Creating pull/merge request")
 
 	if repoInfo.Platform == "github" {
-		return s.createGitHubPR(repoInfo, branchName, jiraIssueKey, summary, description, accessToken)
+		return s.createGitHubPR(repoInfo, branchName, baseBranch, jiraIssueKey, summary, description, accessToken)
 	} else if repoInfo.Platform == "gitlab" {
-		return s.createGitLabMR(repoInfo, branchName, jiraIssueKey, summary, description, accessToken)
+		return s.createGitLabMR(repoInfo, branchName, baseBranch, jiraIssueKey, summary, description, accessToken)
 	}
 
 	return "", fmt.Errorf("unsupported platform: %s", repoInfo.Platform)
@@ -101,7 +107,7 @@ func (s *PRService) parseRepoURL(repoURL string) (*RepoInfo, error) {
 
 func (s *PRService) createGitHubPR(
 	repoInfo *RepoInfo,
-	branchName, jiraIssueKey, summary, description, accessToken string,
+	branchName, baseBranch, jiraIssueKey, summary, description, accessToken string,
 ) (string, error) {
 	apiURL := fmt.Sprintf("%s/repos/%s/%s/pulls", repoInfo.BaseURL, repoInfo.Owner, repoInfo.Repo)
 
@@ -112,7 +118,7 @@ func (s *PRService) createGitHubPR(
 		"title": title,
 		"body":  body,
 		"head":  branchName,
-		"base":  "main", // Default to main, could be configurable
+		"base":  baseBranch,
 	}
 
 	jsonData, err := json.Marshal(payload)
@@ -157,7 +163,7 @@ func (s *PRService) createGitHubPR(
 
 func (s *PRService) createGitLabMR(
 	repoInfo *RepoInfo,
-	branchName, jiraIssueKey, summary, description, accessToken string,
+	branchName, baseBranch, jiraIssueKey, summary, description, accessToken string,
 ) (string, error) {
 	// Get project ID first
 	projectPath := fmt.Sprintf("%s/%s", repoInfo.Owner, repoInfo.Repo)
@@ -197,7 +203,7 @@ func (s *PRService) createGitLabMR(
 
 	payload := map[string]interface{}{
 		"source_branch": branchName,
-		"target_branch": "main", // Default to main, could be configurable
+		"target_branch": baseBranch,
 		"title":         title,
 		"description":   mrDescription,
 	}

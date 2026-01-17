@@ -80,6 +80,7 @@ export const RepositoryList: React.FC = () => {
       url: '',
       description: '',
       git_access_token: '',
+      base_branch: 'main',
     });
     setErrors({});
     setDialogOpen(true);
@@ -91,6 +92,7 @@ export const RepositoryList: React.FC = () => {
       url: repo.url,
       description: repo.description,
       git_access_token: repo.git_access_token,
+      base_branch: repo.base_branch || 'main',
     });
     setErrors({});
     setDialogOpen(true);
@@ -201,6 +203,7 @@ export const RepositoryList: React.FC = () => {
                   <TableRow>
                     <TableCell>URL</TableCell>
                     <TableCell>Description</TableCell>
+                    <TableCell>Base Branch</TableCell>
                     <TableCell align="right">Actions</TableCell>
                   </TableRow>
                 </TableHead>
@@ -209,6 +212,7 @@ export const RepositoryList: React.FC = () => {
                     <TableRow key={repo.repository_id}>
                       <TableCell>{repo.url}</TableCell>
                       <TableCell>{repo.description}</TableCell>
+                      <TableCell>{repo.base_branch || 'main'}</TableCell>
                       <TableCell align="right">
                         <IconButton
                           size="small"
@@ -266,6 +270,15 @@ export const RepositoryList: React.FC = () => {
               error={Boolean(errors.git_access_token)}
               helperText={errors.git_access_token}
               type="password"
+              sx={{ mb: 2 }}
+            />
+            <TextField
+              fullWidth
+              label="Base Branch"
+              value={formData.base_branch || 'main'}
+              onChange={handleChange('base_branch')}
+              error={Boolean(errors.base_branch)}
+              helperText={errors.base_branch || 'Default branch for pull requests (e.g., main, master, develop)'}
             />
           </Box>
         </DialogContent>

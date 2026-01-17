@@ -95,6 +95,11 @@ func main() {
 	// API routes
 	api := router.Group("/api")
 	{
+		// Custom endpoint
+		api.GET("/selimboyuk", func(c *gin.Context) {
+			c.JSON(200, gin.H{"message": "ok"})
+		})
+
 		// Project routes
 		api.GET("/projects", projectHandler.GetProjects)
 		api.GET("/projects/:id", projectHandler.GetProject)

@@ -2,10 +2,10 @@ package services
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -14,93 +14,23 @@ import (
 )
 
 type ClaudeService struct {
-	apiURL     string
-	httpClient *http.Client
+	claudePath string
 	logger     *logrus.Logger
 }
 
-func NewClaudeService(apiURL string, logger *logrus.Logger) *ClaudeService {
+func NewClaudeService(claudePath string, logger *logrus.Logger) *ClaudeService {
+	// Default to 'claude' command if not specified
+	if claudePath == "" {
+		claudePath = "claude"
+	}
 	return &ClaudeService{
-		apiURL: apiURL,
-		httpClient: &http.Client{
-			Timeout: 300 * time.Second, // 5 minutes for code generation
-		},
-		logger: logger,
+		claudePath: claudePath,
+		logger:     logger,
 	}
 }
 
-func (s *ClaudeService) GenerateCode(
-	request *models.DevelopmentRequest,
-	project *models.Project,
-	analysis *models.RepositoryAnalysis,
-	repoPath string,
-	sessionToken string,
-) (*models.ClaudeCodeResponse, error) {
-	// Build the prompt
-	prompt := s.buildPrompt(request, project, analysis)
-
-	s.logger.WithFields(logrus.Fields{
-		"jira_issue_key": request.JiraIssueKey,
-		"prompt_length":  len(prompt),
-	}).Info("Calling Claude Code API")
-
-	// Create request payload
-	claudeRequest := &models.ClaudeCodeRequest{
-		Prompt:         prompt,
-		ProjectContext: s.buildProjectContext(project, analysis),
-		RepositoryPath: repoPath,
-		SessionToken:   sessionToken,
-	}
-
-	jsonData, err := json.Marshal(claudeRequest)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	// Make HTTP request
-	req, err := http.NewRequest("POST", s.apiURL, bytes.NewBuffer(jsonData))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to call Claude Code API: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Read response
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	// Check status code
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
-	}
-
-	// Parse response
-	var claudeResponse models.ClaudeCodeResponse
-	if err := json.Unmarshal(body, &claudeResponse); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
-	}
-
-	if !claudeResponse.Success {
-		return nil, fmt.Errorf("Claude Code API returned error: %s", claudeResponse.Error)
-	}
-
-	s.logger.WithFields(logrus.Fields{
-		"jira_issue_key": request.JiraIssueKey,
-		"files_changed":  claudeResponse.FilesChanged,
-	}).Info("Code generation completed successfully")
-
-	return &claudeResponse, nil
-}
-
-func (s *ClaudeService) buildPrompt(
+// BuildPrompt creates the prompt that will be sent to Claude CLI
+func (s *ClaudeService) BuildPrompt(
 	request *models.DevelopmentRequest,
 	project *models.Project,
 	analysis *models.RepositoryAnalysis,
@@ -109,82 +39,174 @@ func (s *ClaudeService) buildPrompt(
 
 	prompt.WriteString(fmt.Sprintf("# Development Task: %s\n\n", request.JiraIssueKey))
 	prompt.WriteString(fmt.Sprintf("## Summary\n%s\n\n", request.Summary))
-
-	if request.Description != "" {
-		prompt.WriteString(fmt.Sprintf("## Description\n%s\n\n", request.Description))
-	}
-
-	prompt.WriteString("## Project Context\n\n")
-	prompt.WriteString(fmt.Sprintf("**Project**: %s\n", project.Name))
-	prompt.WriteString(fmt.Sprintf("**Project Type**: %s\n", analysis.ProjectType))
-
-	if len(analysis.Languages) > 0 {
-		prompt.WriteString(fmt.Sprintf("**Languages**: %s\n", strings.Join(analysis.Languages, ", ")))
-	}
+	prompt.WriteString(fmt.Sprintf("## Description\n%s\n\n", request.Description))
 
 	if project.Scope != "" {
-		prompt.WriteString(fmt.Sprintf("**Project Scope**: %s\n\n", project.Scope))
+		prompt.WriteString(fmt.Sprintf("## Project Scope\n%s\n\n", project.Scope))
 	}
 
-	// Add repository structure
-	prompt.WriteString("## Repository Structure\n\n")
-
+	prompt.WriteString("## Repository Context\n")
+	prompt.WriteString(fmt.Sprintf("- Project Type: %s\n", analysis.ProjectType))
+	prompt.WriteString(fmt.Sprintf("- Languages: %s\n", strings.Join(analysis.Languages, ", ")))
 	if len(analysis.EntryPoints) > 0 {
-		prompt.WriteString("**Entry Points**:\n")
-		for _, ep := range analysis.EntryPoints {
-			prompt.WriteString(fmt.Sprintf("- %s\n", ep))
-		}
-		prompt.WriteString("\n")
+		prompt.WriteString(fmt.Sprintf("- Entry Points: %s\n", strings.Join(analysis.EntryPoints, ", ")))
 	}
-
 	if len(analysis.KeyDirectories) > 0 {
-		prompt.WriteString("**Key Directories**:\n")
-		for _, dir := range analysis.KeyDirectories {
-			prompt.WriteString(fmt.Sprintf("- %s\n", dir))
-		}
-		prompt.WriteString("\n")
+		prompt.WriteString(fmt.Sprintf("- Key Directories: %s\n", strings.Join(analysis.KeyDirectories, ", ")))
 	}
 
-	if len(analysis.Patterns) > 0 {
-		prompt.WriteString("**Detected Patterns**:\n")
-		for key, value := range analysis.Patterns {
-			prompt.WriteString(fmt.Sprintf("- %s: %s\n", key, value))
-		}
-		prompt.WriteString("\n")
-	}
-
-	// Add instructions
-	prompt.WriteString("## Instructions\n\n")
-	prompt.WriteString("Please implement the requested changes following these guidelines:\n\n")
-	prompt.WriteString("1. Follow the existing code patterns and architecture detected in the repository\n")
-	prompt.WriteString("2. Maintain consistency with the project's coding style and conventions\n")
-	prompt.WriteString("3. Add appropriate error handling and logging\n")
-	prompt.WriteString("4. Ensure the changes integrate seamlessly with existing code\n")
-	prompt.WriteString("5. Write clean, maintainable, and well-documented code\n")
-	prompt.WriteString("6. Add unit tests if applicable\n\n")
-
-	prompt.WriteString("Please implement the changes and provide a summary of what was modified.\n")
+	prompt.WriteString("\n## Instructions\n")
+	prompt.WriteString("Please implement the changes described above in the repository.\n")
+	prompt.WriteString("Make sure to:\n")
+	prompt.WriteString("1. Follow existing code patterns and conventions\n")
+	prompt.WriteString("2. Write clean, maintainable code\n")
+	prompt.WriteString("3. Add appropriate error handling\n")
+	prompt.WriteString("4. Update any relevant documentation\n")
 
 	return prompt.String()
 }
 
-func (s *ClaudeService) buildProjectContext(project *models.Project, analysis *models.RepositoryAnalysis) string {
-	var context strings.Builder
+func (s *ClaudeService) GenerateCode(
+	request *models.DevelopmentRequest,
+	project *models.Project,
+	analysis *models.RepositoryAnalysis,
+	repoPath string,
+) (*models.ClaudeCodeResponse, error) {
+	// Build the prompt
+	prompt := s.BuildPrompt(request, project, analysis)
 
-	context.WriteString(fmt.Sprintf("Project: %s\n", project.Name))
-	context.WriteString(fmt.Sprintf("Type: %s\n", analysis.ProjectType))
+	s.logger.WithFields(logrus.Fields{
+		"jira_issue_key": request.JiraIssueKey,
+		"prompt_length":  len(prompt),
+		"repo_path":      repoPath,
+	}).Info("Calling Claude Code CLI with screen")
 
-	if len(analysis.Languages) > 0 {
-		context.WriteString(fmt.Sprintf("Languages: %s\n", strings.Join(analysis.Languages, ", ")))
+	// Create unique session name and log file
+	sessionName := fmt.Sprintf("claude-%s", request.JiraIssueKey)
+	logFile := filepath.Join(repoPath, ".claude-output.log")
+	doneFile := filepath.Join(repoPath, ".claude-done")
+
+	// Clean up any previous files
+	os.Remove(logFile)
+	os.Remove(doneFile)
+
+	// Escape single quotes in prompt for bash
+	escapedPrompt := strings.ReplaceAll(prompt, "'", "'\\''")
+
+	// Create bash command that runs Claude and signals completion
+	bashCmd := fmt.Sprintf(
+		"cd '%s' && '%s' --add-dir '%s' --permission-mode acceptEdits '%s' > '%s' 2>&1; echo $? > '%s'",
+		repoPath,
+		s.claudePath,
+		repoPath,
+		escapedPrompt,
+		logFile,
+		doneFile,
+	)
+
+	s.logger.WithFields(logrus.Fields{
+		"session_name": sessionName,
+		"log_file":     logFile,
+	}).Info("Starting screen session for Claude CLI")
+
+	// Start screen session in detached mode with logging
+	cmd := exec.Command("screen", "-dmS", sessionName, "bash", "-c", bashCmd)
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("failed to start screen session: %w", err)
 	}
 
-	if len(analysis.DependencyManagers) > 0 {
-		context.WriteString(fmt.Sprintf("Dependency Managers: %s\n", strings.Join(analysis.DependencyManagers, ", ")))
+	s.logger.Info("Screen session started, waiting for Claude to complete...")
+
+	// Wait for completion with timeout (10 minutes max)
+	timeout := time.After(10 * time.Minute)
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-timeout:
+			// Kill the screen session on timeout
+			exec.Command("screen", "-S", sessionName, "-X", "quit").Run()
+			return nil, fmt.Errorf("Claude CLI timed out after 10 minutes")
+
+		case <-ticker.C:
+			// Check if done file exists
+			if _, err := os.Stat(doneFile); err == nil {
+				s.logger.Info("Claude CLI completed")
+				goto completed
+			}
+
+			// Also check if screen session still exists
+			checkCmd := exec.Command("screen", "-ls", sessionName)
+			output, _ := checkCmd.Output()
+			if !bytes.Contains(output, []byte(sessionName)) {
+				// Session ended but no done file - might have crashed
+				if _, err := os.Stat(logFile); err == nil {
+					s.logger.Warn("Screen session ended without done file, checking log")
+					goto completed
+				}
+				return nil, fmt.Errorf("screen session ended unexpectedly without output")
+			}
+
+			s.logger.Debug("Still waiting for Claude to complete...")
+		}
 	}
 
-	if arch, ok := analysis.Patterns["architecture"]; ok {
-		context.WriteString(fmt.Sprintf("Architecture: %s\n", arch))
+completed:
+	// Read the output log
+	outputBytes, err := os.ReadFile(logFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read Claude output: %w", err)
+	}
+	outputStr := string(outputBytes)
+
+	// Check exit code if available
+	if exitCodeBytes, err := os.ReadFile(doneFile); err == nil {
+		exitCode := strings.TrimSpace(string(exitCodeBytes))
+		if exitCode != "0" {
+			s.logger.WithFields(logrus.Fields{
+				"exit_code": exitCode,
+				"output":    outputStr,
+			}).Error("Claude CLI failed with non-zero exit code")
+			return nil, fmt.Errorf("Claude CLI failed with exit code %s\nOutput: %s", exitCode, outputStr)
+		}
 	}
 
-	return context.String()
+	s.logger.WithFields(logrus.Fields{
+		"jira_issue_key": request.JiraIssueKey,
+		"output_length":  len(outputStr),
+	}).Info("Claude CLI completed successfully via screen")
+
+	// Clean up temp files
+	os.Remove(logFile)
+	os.Remove(doneFile)
+
+	// Count files that were modified
+	filesChanged := s.countChangedFiles(repoPath)
+
+	return &models.ClaudeCodeResponse{
+		Success:            true,
+		Message:            "Code generated successfully via Claude CLI in screen session",
+		FilesChanged:       filesChanged,
+		DevelopmentDetails: fmt.Sprintf("Generated code using Claude CLI.\n\nClaude Output:\n%s", outputStr),
+	}, nil
+}
+
+func (s *ClaudeService) countChangedFiles(repoPath string) int {
+	// Execute: git status --short
+	cmd := exec.Command("git", "status", "--short")
+	cmd.Dir = repoPath
+
+	output, err := cmd.Output()
+	if err != nil {
+		s.logger.WithError(err).Warn("Failed to get git status")
+		return 0
+	}
+
+	// Count lines (each line is a changed file)
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(lines) == 1 && lines[0] == "" {
+		return 0
+	}
+	return len(lines)
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -31,8 +32,9 @@ func main() {
 	mongoDatabase := "sdlc_agents"
 	rabbitMQURL := getEnv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
 	configAPIURL := getEnv("CONFIGURATION_API_URL", "http://localhost:8081")
-	claudeAPIURL := getEnv("CLAUDE_API_URL", "http://localhost:8000/generate")
-	claudeSessionToken := getEnv("CLAUDE_SESSION_TOKEN", "")
+
+	// Claude CLI configuration
+	claudeCLIPath := getEnv("CLAUDE_CLI_PATH", "/app/claude")
 
 	// Connect to MongoDB
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -59,8 +61,10 @@ func main() {
 	configClient := clients.NewConfigAPIClient(configAPIURL, logger)
 	gitService := services.NewGitService(logger)
 	analyzerService := services.NewAnalyzerService(logger)
-	claudeService := services.NewClaudeService(claudeAPIURL, logger)
+	claudeService := services.NewClaudeService(claudeCLIPath, logger)
 	prService := services.NewPRService(logger)
+
+	logger.Info("Using Claude Code CLI for code generation")
 
 	// Create application context
 	appCtx, appCancel := context.WithCancel(context.Background())
@@ -74,7 +78,6 @@ func main() {
 		analyzerService,
 		claudeService,
 		prService,
-		claudeSessionToken,
 		logger,
 	)
 
@@ -111,7 +114,6 @@ func createMessageHandler(
 	analyzerService *services.AnalyzerService,
 	claudeService *services.ClaudeService,
 	prService *services.PRService,
-	claudeSessionToken string,
 	logger *logrus.Logger,
 ) consumer.MessageHandler {
 	return func(ctx context.Context, request *models.DevelopmentRequest) error {
@@ -163,10 +165,18 @@ func createMessageHandler(
 		}
 
 		dev.RepositoryURL = repository.URL
+		// Set branch name early (format: feature/JIRA-KEY)
+		dev.BranchName = fmt.Sprintf("feature/%s", request.JiraIssueKey)
 
 		logger.WithFields(logrus.Fields{
 			"repository_url": repository.URL,
+			"branch_name":    dev.BranchName,
 		}).Info("Repository selected")
+
+		// Update repository URL and branch name in database
+		if err := devRepo.UpdateRepositoryInfo(ctx, dev.ID, repository.URL, dev.BranchName); err != nil {
+			logger.WithError(err).Warn("Failed to update repository info")
+		}
 
 		// Step 3: Clone repository
 		logger.Info("Cloning repository")
@@ -185,22 +195,39 @@ func createMessageHandler(
 			return err
 		}
 
-		// Step 5: Generate code with Claude
-		logger.Info("Generating code with Claude Code")
-		claudeResponse, err := claudeService.GenerateCode(request, project, analysis, workspace.Path, claudeSessionToken)
-		if err != nil {
-			devRepo.MarkFailed(ctx, dev.ID, err.Error())
-			return err
+		// Step 5: Build prompt and save to database
+		logger.Info("Building prompt for Claude Code")
+		prompt := claudeService.BuildPrompt(request, project, analysis)
+
+		logger.WithFields(logrus.Fields{
+			"prompt_length": len(prompt),
+		}).Info("Saving prompt to database")
+
+		if err := devRepo.UpdatePrompt(ctx, dev.ID, prompt); err != nil {
+			logger.WithError(err).Warn("Failed to save prompt to database")
 		}
 
-		// Step 6: Create branch and commit changes
+		// Step 6: Create feature branch FIRST (before generating code)
 		logger.Info("Creating feature branch")
 		if err := gitService.CreateAndCheckoutBranch(workspace, request.JiraIssueKey); err != nil {
 			devRepo.MarkFailed(ctx, dev.ID, err.Error())
 			return err
 		}
 
+		// Step 7: Generate code with Claude (on the feature branch)
+		logger.Info("Generating code with Claude Code CLI")
+		claudeResponse, err := claudeService.GenerateCode(request, project, analysis, workspace.Path)
+		if err != nil {
+			devRepo.MarkFailed(ctx, dev.ID, err.Error())
+			return err
+		}
+
 		dev.BranchName = workspace.BranchName
+
+		// Update branch name in database
+		if err := devRepo.UpdateRepositoryInfo(ctx, dev.ID, dev.RepositoryURL, workspace.BranchName); err != nil {
+			logger.WithError(err).Warn("Failed to update branch name")
+		}
 
 		logger.Info("Committing changes")
 		if err := gitService.CommitChanges(workspace, request.JiraIssueKey, request.Summary); err != nil {
@@ -214,11 +241,12 @@ func createMessageHandler(
 			return err
 		}
 
-		// Step 7: Create PR/MR
+		// Step 8: Create PR/MR
 		logger.Info("Creating pull/merge request")
 		prURL, err := prService.CreatePullRequest(
 			repository.URL,
 			workspace.BranchName,
+			repository.BaseBranch,
 			request.JiraIssueKey,
 			request.Summary,
 			request.Description,
@@ -229,7 +257,7 @@ func createMessageHandler(
 			return err
 		}
 
-		// Step 8: Update development record
+		// Step 9: Update development record
 		logger.Info("Marking development as completed")
 		if err := devRepo.MarkCompleted(ctx, dev.ID, prURL, claudeResponse.DevelopmentDetails); err != nil {
 			logger.Errorf("Failed to mark as completed: %v", err)

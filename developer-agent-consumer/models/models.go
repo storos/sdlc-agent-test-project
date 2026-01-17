@@ -52,6 +52,7 @@ type Repository struct {
 	URL            string `json:"url"`
 	Description    string `json:"description"`
 	GitAccessToken string `json:"git_access_token"`
+	BaseBranch     string `json:"base_branch"` // Base branch for PRs (e.g., "main", "master", "develop")
 }
 
 // RepositoryAnalysis represents analyzed repository structure

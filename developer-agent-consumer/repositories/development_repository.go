@@ -68,6 +68,37 @@ func (r *DevelopmentRepository) MarkCompleted(ctx context.Context, id primitive.
 	return nil
 }
 
+func (r *DevelopmentRepository) UpdateRepositoryInfo(ctx context.Context, id primitive.ObjectID, repositoryURL, branchName string) error {
+	update := bson.M{
+		"$set": bson.M{
+			"repository_url": repositoryURL,
+			"branch_name":    branchName,
+		},
+	}
+
+	_, err := r.collection.UpdateOne(ctx, bson.M{"_id": id}, update)
+	if err != nil {
+		return fmt.Errorf("failed to update repository info: %w", err)
+	}
+
+	return nil
+}
+
+func (r *DevelopmentRepository) UpdatePrompt(ctx context.Context, id primitive.ObjectID, prompt string) error {
+	update := bson.M{
+		"$set": bson.M{
+			"prompt": prompt,
+		},
+	}
+
+	_, err := r.collection.UpdateOne(ctx, bson.M{"_id": id}, update)
+	if err != nil {
+		return fmt.Errorf("failed to update prompt: %w", err)
+	}
+
+	return nil
+}
+
 func (r *DevelopmentRepository) MarkFailed(ctx context.Context, id primitive.ObjectID, errorMsg string) error {
 	now := time.Now()
 	update := bson.M{

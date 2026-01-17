@@ -12,6 +12,7 @@ type Repository struct {
 	URL              string `json:"url" bson:"url" binding:"required,url"`
 	Description      string `json:"description" bson:"description" binding:"required"`
 	GitAccessToken   string `json:"git_access_token" bson:"git_access_token" binding:"required"`
+	BaseBranch       string `json:"base_branch" bson:"base_branch"` // Base branch for PRs (e.g., "main", "master")
 }
 
 // Project represents a project configuration
@@ -55,6 +56,7 @@ type AddRepositoryRequest struct {
 	URL             string `json:"url" binding:"required,url"`
 	Description     string `json:"description" binding:"required"`
 	GitAccessToken  string `json:"git_access_token" binding:"required"`
+	BaseBranch      string `json:"base_branch"` // Base branch for PRs (defaults to "main" if not specified)
 }
 
 // UpdateRepositoryRequest represents the request body for updating a repository
@@ -62,4 +64,5 @@ type UpdateRepositoryRequest struct {
 	URL             string `json:"url" binding:"url"`
 	Description     string `json:"description"`
 	GitAccessToken  string `json:"git_access_token"`
+	BaseBranch      string `json:"base_branch"`
 }

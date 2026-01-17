@@ -3,6 +3,7 @@ export interface Repository {
   url: string;
   description: string;
   git_access_token: string;
+  base_branch: string;
 }
 
 export interface Project {
@@ -42,10 +43,12 @@ export interface AddRepositoryRequest {
   url: string;
   description: string;
   git_access_token: string;
+  base_branch?: string;
 }
 
 export interface UpdateRepositoryRequest {
   url?: string;
   description?: string;
   git_access_token?: string;
+  base_branch?: string;
 }

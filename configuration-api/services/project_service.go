@@ -177,10 +177,17 @@ func (s *ProjectService) AddRepository(ctx context.Context, projectID string, re
 		return fmt.Errorf("invalid project ID: %w", err)
 	}
 
+	// Default base branch to "main" if not specified
+	baseBranch := req.BaseBranch
+	if baseBranch == "" {
+		baseBranch = "main"
+	}
+
 	repo := models.Repository{
 		URL:            req.URL,
 		Description:    req.Description,
 		GitAccessToken: req.GitAccessToken,
+		BaseBranch:     baseBranch,
 	}
 
 	err = s.repo.AddRepository(ctx, objectID, repo)
@@ -207,6 +214,9 @@ func (s *ProjectService) UpdateRepository(ctx context.Context, projectID, repoID
 	}
 	if req.GitAccessToken != "" {
 		update["git_access_token"] = req.GitAccessToken
+	}
+	if req.BaseBranch != "" {
+		update["base_branch"] = req.BaseBranch
 	}
 
 	if len(update) == 0 {
