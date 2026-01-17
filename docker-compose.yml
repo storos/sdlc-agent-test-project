@@ -114,7 +114,8 @@ services:
       MONGODB_URL: mongodb://mongodb:27017/sdlc_agents
       RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-guest}:${RABBITMQ_DEFAULT_PASS:-guest}@rabbitmq:5672/
       CONFIGURATION_API_URL: http://configuration-api:8081
-      CLAUDE_CODE_SESSION_TOKEN: ${CLAUDE_CODE_SESSION_TOKEN}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      CLAUDE_CLI_PATH: ${CLAUDE_CLI_PATH:-/root/.local/bin/claude}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       TEMP_DIR: /tmp
     depends_on:

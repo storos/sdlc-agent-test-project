@@ -19,9 +19,17 @@ RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o developer-agent-c
 # Runtime stage
 FROM alpine:latest
 
-RUN apk --no-cache add ca-certificates git
+# Install dependencies for Claude CLI and developer-agent-consumer
+RUN apk --no-cache add ca-certificates git bash curl screen libgcc libstdc++ ripgrep
 
 WORKDIR /root/
+
+# Install Claude Code CLI
+# Download and install Claude CLI using the official method
+RUN curl -fsSL https://claude.ai/install.sh | bash
+
+# Add Claude to PATH
+ENV PATH="/root/.local/bin:${PATH}"
 
 # Copy binary from builder
 COPY --from=builder /app/developer-agent-consumer .
